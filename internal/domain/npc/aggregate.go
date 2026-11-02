@@ -1,0 +1,717 @@
+package npc
+
+import (
+	"time"
+)
+
+// NPCAggregate NPC聚合�?
+type NPCAggregate struct {
+	id            string
+	name          string
+	description   string
+	npcType       NPCType
+	status        NPCStatus
+	location      *Location
+	attributes    *NPCAttributes
+	behavior      *NPCBehavior
+	dialogues     map[string]*Dialogue
+	quests        map[string]*Quest
+	shop          *Shop
+	relationships map[string]*Relationship
+	schedule      *NPCSchedule
+	createdAt     time.Time
+	updatedAt     time.Time
+	version       int
+	events        []DomainEvent
+}
+
+// NewNPCAggregate 创建NPC聚合�?
+func NewNPCAggregate(id, name, description string, npcType NPCType) *NPCAggregate {
+	now := time.Now()
+	return &NPCAggregate{
+		id:            id,
+		name:          name,
+		description:   description,
+		npcType:       npcType,
+		status:        NPCStatusActive,
+		location:      NewLocation(0, 0, 0, "default", "default"),
+		attributes:    NewNPCAttributes(),
+		behavior:      NewNPCBehavior(),
+		dialogues:     make(map[string]*Dialogue),
+		quests:        make(map[string]*Quest),
+		relationships: make(map[string]*Relationship),
+		schedule:      NewNPCSchedule(),
+		createdAt:     now,
+		updatedAt:     now,
+		version:       1,
+		events:        make([]DomainEvent, 0),
+	}
+}
+
+// GetID gets ID
+func (n *NPCAggregate) GetID() string {
+	return n.id
+}
+
+// GetName gets name
+func (n *NPCAggregate) GetName() string {
+	return n.name
+}
+
+// GetDescription gets description
+func (n *NPCAggregate) GetDescription() string {
+	return n.description
+}
+
+// GetType gets type
+func (n *NPCAggregate) GetType() NPCType {
+	return n.npcType
+}
+
+// GetStatus 获取状�?
+func (n *NPCAggregate) GetStatus() NPCStatus {
+	return n.status
+}
+
+// GetLocation gets location
+func (n *NPCAggregate) GetLocation() *Location {
+	return n.location
+}
+
+// GetAttributes 获取属�?
+func (n *NPCAggregate) GetAttributes() *NPCAttributes {
+	return n.attributes
+}
+
+// GetBehavior gets behavior
+func (n *NPCAggregate) GetBehavior() *NPCBehavior {
+	return n.behavior
+}
+
+// GetShop 获取商店
+func (n *NPCAggregate) GetShop() *Shop {
+	return n.shop
+}
+
+// GetSchedule 获取日程
+func (n *NPCAggregate) GetSchedule() *NPCSchedule {
+	return n.schedule
+}
+
+// GetVersion 获取版本
+func (n *NPCAggregate) GetVersion() int {
+	return n.version
+}
+
+// GetEvents 获取领域事件
+func (n *NPCAggregate) GetEvents() []DomainEvent {
+	return n.events
+}
+
+// ClearEvents 清除领域事件
+func (n *NPCAggregate) ClearEvents() {
+	n.events = make([]DomainEvent, 0)
+}
+
+// SetName 设置名称
+func (n *NPCAggregate) SetName(name string) error {
+	if name == "" {
+		return ErrInvalidNPCName
+	}
+
+	oldName := n.name
+	n.name = name
+	n.updatedAt = time.Now()
+	n.version++
+
+	// 发布名称变更事件
+	event := NewNPCNameChangedEvent(n.id, oldName, name)
+	n.addEvent(event)
+
+	return nil
+}
+
+// SetDescription 设置描述
+func (n *NPCAggregate) SetDescription(description string) {
+	n.description = description
+	n.updatedAt = time.Now()
+	n.version++
+}
+
+// SetStatus 设置状�?
+func (n *NPCAggregate) SetStatus(status NPCStatus) error {
+	if !status.IsValid() {
+		return ErrInvalidNPCStatus
+	}
+
+	oldStatus := n.status
+	n.status = status
+	n.updatedAt = time.Now()
+	n.version++
+
+	// 发布状态变更事�?
+	event := NewNPCStatusChangedEvent(n.id, oldStatus, status, "status_changed", "system")
+	n.addEvent(event)
+
+	return nil
+}
+
+// MoveTo 移动到指定位�?
+func (n *NPCAggregate) MoveTo(location *Location) error {
+	if location == nil {
+		return ErrInvalidLocation
+	}
+
+	// 检查是否可以移�?
+	if !n.CanMove() {
+		return ErrNPCCannotMove
+	}
+
+	oldLocation := n.location
+	n.location = location
+	n.updatedAt = time.Now()
+	n.version++
+
+	// 发布移动事件
+	event := NewNPCMovedEvent(n.id, oldLocation, location)
+	n.addEvent(event)
+
+	return nil
+}
+
+// CanMove 检查是否可以移�?
+func (n *NPCAggregate) CanMove() bool {
+	return n.status == NPCStatusActive && n.behavior.CanMoveNow()
+}
+
+// AddDialogue 添加对话
+func (n *NPCAggregate) AddDialogue(dialogue *Dialogue) error {
+	if dialogue == nil {
+		return ErrInvalidDialogue
+	}
+
+	if _, exists := n.dialogues[dialogue.GetID()]; exists {
+		return ErrDialogueAlreadyExists
+	}
+
+	n.dialogues[dialogue.GetID()] = dialogue
+	n.updatedAt = time.Now()
+	n.version++
+
+	// 发布对话添加事件
+	event := NewDialogueAddedEvent(n.id, dialogue.GetID())
+	n.addEvent(event)
+
+	return nil
+}
+
+// RemoveDialogue 移除对话
+func (n *NPCAggregate) RemoveDialogue(dialogueID string) error {
+	_, exists := n.dialogues[dialogueID]
+	if !exists {
+		return ErrDialogueNotFound
+	}
+
+	delete(n.dialogues, dialogueID)
+	n.updatedAt = time.Now()
+	n.version++
+
+	// 发布对话移除事件
+	event := NewDialogueRemovedEvent(n.id, dialogueID)
+	n.addEvent(event)
+
+	return nil
+}
+
+// StartDialogue 开始对�?
+func (n *NPCAggregate) StartDialogue(dialogueID, playerID string) (*DialogueSession, error) {
+	dialogue, exists := n.dialogues[dialogueID]
+	if !exists {
+		return nil, ErrDialogueNotFound
+	}
+
+	// 检查对话条�?
+	if !dialogue.CanStart(playerID) {
+		return nil, ErrDialogueConditionsNotMet
+	}
+
+	// 创建对话会话
+	session := NewDialogueSession(n.id, dialogueID, playerID)
+
+	n.updatedAt = time.Now()
+	n.version++
+
+	// 发布对话开始事�?
+	event := NewDialogueStartedEvent(n.id, playerID, dialogueID, session.GetID())
+	n.addEvent(event)
+
+	return session, nil
+}
+
+// AddQuest 添加任务
+func (n *NPCAggregate) AddQuest(quest *Quest) error {
+	if quest == nil {
+		return ErrInvalidQuest
+	}
+
+	if _, exists := n.quests[quest.GetID()]; exists {
+		return ErrQuestAlreadyExists
+	}
+
+	n.quests[quest.GetID()] = quest
+	n.updatedAt = time.Now()
+	n.version++
+
+	// 发布任务添加事件
+	event := NewQuestAddedEvent(n.id, quest.GetID())
+	n.addEvent(event)
+
+	return nil
+}
+
+// RemoveQuest 移除任务
+func (n *NPCAggregate) RemoveQuest(questID string) error {
+	_, exists := n.quests[questID]
+	if !exists {
+		return ErrQuestNotFound
+	}
+
+	delete(n.quests, questID)
+	n.updatedAt = time.Now()
+	n.version++
+
+	// 发布任务移除事件
+	event := NewQuestRemovedEvent(n.id, questID)
+	n.addEvent(event)
+
+	return nil
+}
+
+// GiveQuest 给予任务
+func (n *NPCAggregate) GiveQuest(questID, playerID string) (*QuestInstance, error) {
+	quest, exists := n.quests[questID]
+	if !exists {
+		return nil, ErrQuestNotFound
+	}
+
+	// 检查任务条�?
+	if !quest.CanAccept(playerID) {
+		return nil, ErrQuestConditionsNotMet
+	}
+
+	// 创建任务实例
+	instance := NewQuestInstance(questID, playerID, n.id)
+
+	n.updatedAt = time.Now()
+	n.version++
+
+	// 发布任务给予事件
+	event := NewQuestGivenEvent(n.id, questID, playerID)
+	n.addEvent(event)
+
+	return instance, nil
+}
+
+// SetShop 设置商店
+func (n *NPCAggregate) SetShop(shop *Shop) error {
+	if shop == nil {
+		return ErrInvalidShop
+	}
+
+	// 检查NPC类型是否支持商店
+	if !n.npcType.CanHaveShop() {
+		return ErrNPCCannotHaveShop
+	}
+
+	n.shop = shop
+	n.updatedAt = time.Now()
+	n.version++
+
+	// 发布商店设置事件
+	event := NewShopSetEvent(n.id, shop.GetID())
+	n.addEvent(event)
+
+	return nil
+}
+
+// Trade 交易
+func (n *NPCAggregate) Trade(playerID string, tradeRequest *TradeRequest) (*TradeResult, error) {
+	if n.shop == nil {
+		return nil, ErrNPCHasNoShop
+	}
+
+	// 执行交易
+	result, err := n.shop.ExecuteTrade(playerID, tradeRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	n.updatedAt = time.Now()
+	n.version++
+
+	// 发布交易事件
+	event := NewTradeExecutedEvent(n.id, playerID, tradeRequest, result)
+	n.addEvent(event)
+
+	return result, nil
+}
+
+// UpdateRelationship 更新关系
+func (n *NPCAggregate) UpdateRelationship(playerID string, change int, reason string) error {
+	relationship, exists := n.relationships[playerID]
+	if !exists {
+		relationship = NewRelationship(playerID, n.id)
+		n.relationships[playerID] = relationship
+	}
+
+	oldLevel := relationship.GetLevel()
+	err := relationship.ChangeValue(change, reason)
+	if err != nil {
+		return err
+	}
+
+	n.updatedAt = time.Now()
+	n.version++
+
+	// 如果关系等级发生变化，发布事�?
+	if relationship.GetLevel() != oldLevel {
+		oldValue := relationship.GetValue() - change
+		newValue := relationship.GetValue()
+		event := NewRelationshipChangedEvent(n.id, playerID, oldValue, newValue, oldLevel, relationship.GetLevel(), RelationshipChangeTypeIncrease, reason)
+		n.addEvent(event)
+	}
+
+	return nil
+}
+
+// GetRelationship 获取关系
+func (n *NPCAggregate) GetRelationship(playerID string) *Relationship {
+	return n.relationships[playerID]
+}
+
+// GetDialogue 获取对话
+func (n *NPCAggregate) GetDialogue(dialogueID string) (*Dialogue, error) {
+	dialogue, exists := n.dialogues[dialogueID]
+	if !exists {
+		return nil, ErrDialogueNotFound
+	}
+	return dialogue, nil
+}
+
+// GetAllDialogues 获取所有对�?
+func (n *NPCAggregate) GetAllDialogues() map[string]*Dialogue {
+	return n.dialogues
+}
+
+// GetAvailableDialogues 获取可用对话
+func (n *NPCAggregate) GetAvailableDialogues(playerID string) []*Dialogue {
+	var available []*Dialogue
+	for _, dialogue := range n.dialogues {
+		if dialogue.CanStart(playerID) {
+			available = append(available, dialogue)
+		}
+	}
+	return available
+}
+
+// GetQuest 获取任务
+func (n *NPCAggregate) GetQuest(questID string) (*Quest, error) {
+	quest, exists := n.quests[questID]
+	if !exists {
+		return nil, ErrQuestNotFound
+	}
+	return quest, nil
+}
+
+// GetAllQuests 获取所有任�?
+func (n *NPCAggregate) GetAllQuests() map[string]*Quest {
+	return n.quests
+}
+
+// GetAvailableQuests 获取可用任务
+func (n *NPCAggregate) GetAvailableQuests(playerID string) []*Quest {
+	var available []*Quest
+	for _, quest := range n.quests {
+		if quest.CanAccept(playerID) {
+			available = append(available, quest)
+		}
+	}
+	return available
+}
+
+// Update 更新NPC状�?
+func (n *NPCAggregate) Update(deltaTime time.Duration) {
+	// 更新行为
+	n.behavior.Update(deltaTime)
+
+	// 更新日程
+	n.schedule.Update(time.Now())
+
+	// 更新商店（如果有�?
+	if n.shop != nil {
+		n.shop.Update(deltaTime)
+	}
+
+	n.updatedAt = time.Now()
+	n.version++
+}
+
+// IsActive 检查是否激�?
+func (n *NPCAggregate) IsActive() bool {
+	return n.status == NPCStatusActive
+}
+
+// CanInteract 检查是否可以交�?
+func (n *NPCAggregate) CanInteract(playerID string) bool {
+	if !n.IsActive() {
+		return false
+	}
+
+	// 检查关系是否允许交�?
+	relationship := n.GetRelationship(playerID)
+	if relationship != nil && relationship.GetLevel() == RelationshipLevelHostile {
+		return false
+	}
+
+	return true
+}
+
+// GetInteractionOptions 获取交互选项
+func (n *NPCAggregate) GetInteractionOptions(playerID string) []InteractionOption {
+	var options []InteractionOption
+
+	if !n.CanInteract(playerID) {
+		return options
+	}
+
+	// 添加对话选项
+	availableDialogues := n.GetAvailableDialogues(playerID)
+	for _, dialogue := range availableDialogues {
+		options = append(options, InteractionOption{
+			Type:        InteractionTypeDialogue,
+			ID:          dialogue.GetID(),
+			Name:        dialogue.GetName(),
+			Description: dialogue.GetDescription(),
+		})
+	}
+
+	// 添加任务选项
+	availableQuests := n.GetAvailableQuests(playerID)
+	for _, quest := range availableQuests {
+		options = append(options, InteractionOption{
+			Type:        InteractionTypeQuest,
+			ID:          quest.GetID(),
+			Name:        quest.GetName(),
+			Description: quest.GetDescription(),
+		})
+	}
+
+	// 添加商店选项
+	if n.shop != nil && n.shop.IsOpen() {
+		options = append(options, InteractionOption{
+			Type:        InteractionTypeShop,
+			ID:          n.shop.GetID(),
+			Name:        "商店",
+			Description: "浏览商品",
+		})
+	}
+
+	return options
+}
+
+// Activate 激活NPC
+func (n *NPCAggregate) Activate() error {
+	return n.SetStatus(NPCStatusActive)
+}
+
+// Deactivate 停用NPC
+func (n *NPCAggregate) Deactivate() error {
+	return n.SetStatus(NPCStatusInactive)
+}
+
+// Hide 隐藏NPC
+func (n *NPCAggregate) Hide() error {
+	return n.SetStatus(NPCStatusHidden)
+}
+
+// Busy 设置忙碌状�?
+func (n *NPCAggregate) Busy() error {
+	return n.SetStatus(NPCStatusBusy)
+}
+
+// GetStatistics 获取统计信息
+func (n *NPCAggregate) GetStatistics() *NPCStatistics {
+	totalDialogues := len(n.dialogues)
+	totalQuests := len(n.quests)
+	totalRelationships := len(n.relationships)
+
+	var averageRelationship float64
+	if totalRelationships > 0 {
+		sum := 0
+		for _, rel := range n.relationships {
+			sum += rel.GetValue()
+		}
+		averageRelationship = float64(sum) / float64(totalRelationships)
+	}
+
+	return &NPCStatistics{
+		NPCID:               n.id,
+		Name:                n.name,
+		Type:                n.npcType,
+		Status:              n.status,
+		TotalDialogues:      totalDialogues,
+		TotalQuests:         totalQuests,
+		TotalRelationships:  totalRelationships,
+		AverageRelationship: averageRelationship,
+		CreatedAt:           n.createdAt,
+		LastActiveAt:        n.updatedAt,
+	}
+}
+
+// addEvent 添加领域事件
+func (n *NPCAggregate) addEvent(event DomainEvent) {
+	n.events = append(n.events, event)
+}
+
+// ToMap 转换为映�?
+func (n *NPCAggregate) ToMap() map[string]interface{} {
+	return map[string]interface{}{
+		"id":            n.id,
+		"name":          n.name,
+		"description":   n.description,
+		"type":          n.npcType.String(),
+		"status":        n.status.String(),
+		"location":      n.location.ToMap(),
+		"attributes":    n.attributes.ToMap(),
+		"dialogues":     len(n.dialogues),
+		"quests":        len(n.quests),
+		"relationships": len(n.relationships),
+		"has_shop":      n.shop != nil,
+		"created_at":    n.createdAt,
+		"updated_at":    n.updatedAt,
+		"version":       n.version,
+	}
+}
+
+// HasDialogue 检查是否有对话
+func (n *NPCAggregate) HasDialogue() bool {
+	return len(n.dialogues) > 0
+}
+
+// HasQuests 检查是否有任务
+func (n *NPCAggregate) HasQuests() bool {
+	return len(n.quests) > 0
+}
+
+// HasShop 检查是否有商店
+func (n *NPCAggregate) HasShop() bool {
+	return n.shop != nil
+}
+
+// GetCreatedAt 获取创建时间
+func (n *NPCAggregate) GetCreatedAt() time.Time {
+	return n.createdAt
+}
+
+// GetUpdatedAt 获取更新时间
+func (n *NPCAggregate) GetUpdatedAt() time.Time {
+	return n.updatedAt
+}
+
+// InteractionOption 交互选项
+type InteractionOption struct {
+	Type        InteractionType
+	ID          string
+	Name        string
+	Description string
+	Icon        string
+	Enabled     bool
+}
+
+// InteractionType 交互类型
+type InteractionType int
+
+const (
+	InteractionTypeDialogue InteractionType = iota + 1 // 对话
+	InteractionTypeQuest                               // 任务
+	InteractionTypeShop                                // 商店
+	InteractionTypeTrade                               // 交易
+	InteractionTypeService                             // 服务
+)
+
+// String 返回交互类型字符�?
+func (it InteractionType) String() string {
+	switch it {
+	case InteractionTypeDialogue:
+		return "dialogue"
+	case InteractionTypeQuest:
+		return "quest"
+	case InteractionTypeShop:
+		return "shop"
+	case InteractionTypeTrade:
+		return "trade"
+	case InteractionTypeService:
+		return "service"
+	default:
+		return "unknown"
+	}
+}
+
+// NPCStatistics NPC统计信息
+type NPCStatistics struct {
+	NPCID               string
+	Name                string
+	Type                NPCType
+	Status              NPCStatus
+	TotalDialogues      int
+	TotalQuests         int
+	TotalRelationships  int
+	AverageRelationship float64
+	CreatedAt           time.Time
+	LastActiveAt        time.Time
+}
+
+// NewNPCStatistics 创建NPC统计信息
+func NewNPCStatistics(npcID string) *NPCStatistics {
+	return &NPCStatistics{
+		NPCID:     npcID,
+		CreatedAt: time.Now(),
+	}
+}
+
+// AddDialogueSession 添加对话会话
+func (ns *NPCStatistics) AddDialogueSession(playerID string, duration time.Duration) {
+	ns.TotalDialogues++
+	ns.LastActiveAt = time.Now()
+}
+
+// UpdateLastInteractionTime 更新最后交互时间
+func (ns *NPCStatistics) UpdateLastInteractionTime(t time.Time) {
+	ns.LastActiveAt = t
+}
+
+// AddQuestCompletion 添加任务完成
+func (ns *NPCStatistics) AddQuestCompletion(playerID string, questID string, totalValue int) {
+	ns.TotalQuests++
+	ns.LastActiveAt = time.Now()
+}
+
+// 相关错误定义
+var (
+// 这些错误已经在errors.go中定义，注释掉重复声明
+// ErrInvalidNPCName           = fmt.Errorf("invalid NPC name")
+// ErrInvalidNPCStatus         = fmt.Errorf("invalid NPC status")
+// ErrInvalidLocation          = fmt.Errorf("invalid location")
+// ErrNPCCannotMove            = fmt.Errorf("NPC cannot move")
+// ErrInvalidDialogue          = fmt.Errorf("invalid dialogue")
+// ErrDialogueAlreadyExists    = fmt.Errorf("dialogue already exists")
+// ErrDialogueNotFound         = fmt.Errorf("dialogue not found")
+// ErrDialogueConditionsNotMet = fmt.Errorf("dialogue conditions not met")
+// ErrInvalidQuest             = fmt.Errorf("invalid quest")
+// ErrQuestAlreadyExists       = fmt.Errorf("quest already exists")
+// ErrQuestNotFound            = fmt.Errorf("quest not found")
+// ErrQuestConditionsNotMet    = fmt.Errorf("quest conditions not met")
+// ErrInvalidShop              = fmt.Errorf("invalid shop")
+// ErrNPCCannotHaveShop        = fmt.Errorf("NPC cannot have shop")
+// ErrNPCHasNoShop             = fmt.Errorf("NPC has no shop")
+)
