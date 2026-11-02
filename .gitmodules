@@ -1,5 +1,5 @@
 
 [submodule "network/protocol"]
 	path = network/protocol
-	url = git@github.com:gandio12138/greatestworks-proto.git
+	url = https://github.com/gandio12138/greatestworks-proto.git
 	branch = main
